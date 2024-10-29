@@ -2,117 +2,95 @@ package rotate_writer
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
+	"io"
 	"sync/atomic"
 	"time"
 )
 
-type RotateWriter struct {
-	dir string
+type RotatorFn = func(itemIdx int32, currentSize int32, addedSize int, startTime time.Time, endTime time.Time) io.WriteCloser
 
-	currentFilePath  string
+type RotateWriter struct {
+	currentWriter io.WriteCloser
+
 	currentSize      atomic.Int32
-	currentStartTime time.Time
+	currentStartTime atomic.Int64
 
 	counter atomic.Int32
 
-	rotateCondition RotateConditionFn
-	OnRotate        OnRotateFn
+	rotateCondition RotatorFn
 }
 
-func (rw *RotateWriter) rotateFile(newFileName string, newTime *time.Time) error {
-	rw.currentFilePath = filepath.Join(rw.dir, newFileName)
-	rw.currentStartTime = *newTime
+func (rw *RotateWriter) checkRotateCond(len_p int, newTime *time.Time) io.WriteCloser {
+	startTimeInt := rw.currentStartTime.Load()
+	startTime := time.Unix(startTimeInt, 0)
 
-	file, err := os.OpenFile(rw.currentFilePath, os.O_CREATE|os.O_WRONLY, 0644)
+	return rw.rotateCondition(rw.counter.Load()+1, rw.currentSize.Load(), len_p, startTime, *newTime)
+}
+
+func (rw *RotateWriter) rotate(newWriter io.WriteCloser, newTime *time.Time) error {
+	err := rw.currentWriter.Close()
 
 	if err != nil {
 		return err
 	}
 
+	rw.currentWriter = newWriter
+	rw.currentStartTime.Store(newTime.Unix())
 	rw.counter.Add(1)
-
-	if rw.OnRotate != nil {
-		rw.OnRotate(file, newFileName)
-	}
-
 	rw.currentSize.Store(0)
 
-	return file.Close()
-}
-
-func (rw *RotateWriter) Dir() string {
-	return rw.dir
-}
-
-func (rw *RotateWriter) RotateNow() (string, error) {
-	now := time.Now()
-	_, fileName := rw.rotateCondition(int(rw.counter.Load()), int(rw.currentSize.Load()), 0, now, now)
-	return fileName, rw.rotateFile(fileName, &now)
-}
-
-func (rw *RotateWriter) OpenAndWriteToCurrent(p []byte) error {
-
-	file, err := os.OpenFile(rw.currentFilePath, os.O_WRONLY|os.O_APPEND, 0644)
-	if err != nil {
-		return err
-	}
-
-	n, err := file.Write(p)
-
-	if err != nil {
-		return err
-	}
-	rw.currentSize.Add(int32(n))
-
-	return file.Close()
-}
-
-func (rw *RotateWriter) checkRotateCond(len_p int, newTime *time.Time) (bool, string) {
-	currentSize := rw.currentSize.Load()
-	item := rw.counter.Load()
-
-	return rw.rotateCondition(int(item)+1, int(currentSize), len_p, rw.currentStartTime, *newTime)
+	return nil
 }
 
 func (rw *RotateWriter) Write(p []byte) (int, error) {
 	newTime := time.Now()
-	rotate, newFileName := rw.checkRotateCond(len(p), &newTime)
 
-	if rotate {
-		if err := rw.rotateFile(newFileName, &newTime); err != nil {
+	newWriter := rw.checkRotateCond(len(p), &newTime)
+
+	if newWriter != nil {
+		err := rw.rotate(newWriter, &newTime)
+		if err != nil {
 			return 0, fmt.Errorf("failed to rotate file: %s", err)
 		}
 	}
 
-	err := rw.OpenAndWriteToCurrent(p)
-	if err != nil {
-		return 0, fmt.Errorf("failed to open and write to file: %s", err)
+	if rw.currentWriter == nil {
+		return 0, fmt.Errorf("failed to write to file: currentWriter is nil")
 	}
 
-	return len(p), nil
+	n, err := rw.currentWriter.Write(p)
+
+	if err != nil {
+		return 0, fmt.Errorf("failed to write to file: %s", err)
+	}
+
+	rw.currentSize.Add(int32(n))
+
+	return n, nil
 }
 
-func (rw *RotateWriter) Reset() error {
+func (rw *RotateWriter) Reset(writerCloser io.WriteCloser) {
+	rw.currentStartTime.Store(time.Now().Unix())
+	rw.currentWriter = writerCloser
+	rw.counter.Store(0)
 	rw.currentSize.Store(0)
-	_, err := rw.RotateNow()
-
-	return err
 }
 
-func NewRotateWriter(dir string, rotateCondition RotateConditionFn, onRotate OnRotateFn) *RotateWriter {
+func NewRotateWriter(initialWriter io.WriteCloser, rotateCondition RotatorFn) (*RotateWriter, error) {
+
 	if rotateCondition == nil {
-		rotateCondition = DefaultRotateCondition
+		return nil, fmt.Errorf("rotateCondition cannot be nil")
+	}
+
+	if initialWriter == nil {
+		return nil, fmt.Errorf("writerCloser cannot be nil")
 	}
 
 	rw := &RotateWriter{
-		dir:             dir,
-		OnRotate:        onRotate,
 		rotateCondition: rotateCondition,
 	}
 
-	rw.Reset()
+	rw.Reset(initialWriter)
 
-	return rw
+	return rw, nil
 }

@@ -8,7 +8,7 @@ import (
 
 type FileNameFn = func(itemIdx int, currentSize int, addedSize int, startTime time.Time, endTime time.Time) string
 
-type RotateConditionFn = func(itemIdx int, currentSize int, addedSize int, startTime time.Time, endTime time.Time) (rotate bool, fileName string)
+type FileRotateConditionFn = func(itemIdx int, currentSize int, addedSize int, startTime time.Time, endTime time.Time) (rotate bool, fileName string)
 
 type OnRotateFn = func(file *os.File, fileName string)
 
