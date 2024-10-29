@@ -56,6 +56,8 @@ func (rw *RotateWriter) checkRotate(len_p int, newTime time.Time) io.WriteCloser
 
 func (rw *RotateWriter) Rotate(newWriter io.WriteCloser, newTime time.Time) error {
 	rw.mu.Lock()
+	defer rw.mu.Unlock()
+
 	if rw.currentWriter != nil {
 		err := rw.currentWriter.Close()
 		if err != nil {
@@ -64,7 +66,6 @@ func (rw *RotateWriter) Rotate(newWriter io.WriteCloser, newTime time.Time) erro
 		}
 	}
 	rw.currentWriter = newWriter
-	rw.mu.Unlock()
 
 	rw.currentStartTime.Store(newTime.Unix())
 	rw.counter.Add(1)
@@ -74,16 +75,21 @@ func (rw *RotateWriter) Rotate(newWriter io.WriteCloser, newTime time.Time) erro
 }
 
 func (rw *RotateWriter) Write(p []byte) (int, error) {
-	newTime := time.Now()
+	rw.mu.Lock()
 
+	newTime := time.Now()
 	newWriter := rw.checkRotate(len(p), newTime)
 
+	rw.mu.Unlock()
 	if newWriter != nil {
 		err := rw.Rotate(newWriter, newTime)
 		if err != nil {
 			return 0, &RotateError{err}
 		}
 	}
+
+	rw.mu.Lock()
+	defer rw.mu.Unlock()
 
 	if rw.currentWriter == nil {
 		return 0, io.ErrClosedPipe
@@ -101,13 +107,17 @@ func (rw *RotateWriter) Write(p []byte) (int, error) {
 }
 
 func (rw *RotateWriter) Reset(writerCloser io.WriteCloser) {
-	rw.currentStartTime.Store(time.Now().Unix())
+	rw.mu.Lock()
+	defer rw.mu.Unlock()
 	rw.currentWriter = writerCloser
+	rw.currentStartTime.Store(time.Now().Unix())
 	rw.counter.Store(0)
 	rw.currentSize.Store(0)
 }
 
 func (rw *RotateWriter) Close() error {
+	rw.mu.Lock()
+	defer rw.mu.Unlock()
 	if rw.currentWriter == nil {
 		return nil
 	}
