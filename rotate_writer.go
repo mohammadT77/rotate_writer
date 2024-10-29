@@ -2,6 +2,7 @@ package rotate_writer
 
 import (
 	"io"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -25,6 +26,18 @@ type RotateWriter struct {
 	counter atomic.Int32
 
 	rotatorFn RotatorFn
+
+	mu sync.Mutex
+}
+
+func (rw *RotateWriter) Status() RotateStatus {
+	return RotateStatus{
+		ItemIdx:     rw.counter.Load(),
+		CurrentSize: rw.currentSize.Load(),
+		AddedSize:   0,
+		StartTime:   time.Unix(rw.currentStartTime.Load(), 0),
+		EndTime:     time.Now(),
+	}
 }
 
 func (rw *RotateWriter) checkRotate(len_p int, newTime time.Time) io.WriteCloser {
@@ -42,13 +55,15 @@ func (rw *RotateWriter) checkRotate(len_p int, newTime time.Time) io.WriteCloser
 }
 
 func (rw *RotateWriter) Rotate(newWriter io.WriteCloser, newTime time.Time) error {
+	rw.mu.Lock()
 	err := rw.currentWriter.Close()
-
 	if err != nil {
+		rw.mu.Unlock()
 		return err
 	}
-
 	rw.currentWriter = newWriter
+	rw.mu.Unlock()
+
 	rw.currentStartTime.Store(newTime.Unix())
 	rw.counter.Add(1)
 	rw.currentSize.Store(0)
