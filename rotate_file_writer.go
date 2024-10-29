@@ -11,32 +11,11 @@ import (
 
 type FileRotatorFn = func(RotateStatus) (rotate bool, fileName string)
 
-func getDirName(filePath string) string {
-	return path.Dir(filePath)
-}
-
-func getRotatorFn(dir string, fileRotatorFn FileRotatorFn) RotatorFn {
-	return func(status RotateStatus) io.WriteCloser {
-		if rotate, fileName := fileRotatorFn(status); rotate {
-			newFile, err := os.OpenFile(path.Join(dir, fileName), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-			if err == nil {
-				return newFile
-			}
-		}
-
-		return nil
-	}
-}
-
 type RotateFileWriter struct {
 	*RotateWriter
 
 	dir             string
 	currentFilePath atomic.Value
-}
-
-func (rfw *RotateFileWriter) IsOpen() bool {
-	return rfw.currentWriter != nil
 }
 
 func (rfw *RotateFileWriter) Open() error {
@@ -46,7 +25,7 @@ func (rfw *RotateFileWriter) Open() error {
 		return err
 	}
 
-	rfw.currentWriter = f
+	rfw.curWriter = f
 	return nil
 }
 
@@ -76,7 +55,7 @@ func NewRotateFileWriter(initFilePath string, fileRotatorFn FileRotatorFn) (*Rot
 		return nil, errors.New("fileRotatorFn cannot be nil")
 	}
 
-	dir := getDirName(initFilePath)
+	dir := path.Dir(initFilePath)
 
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
 		err = os.MkdirAll(dir, 0755)
@@ -85,15 +64,26 @@ func NewRotateFileWriter(initFilePath string, fileRotatorFn FileRotatorFn) (*Rot
 		}
 	}
 
-	rotatorFn := getRotatorFn(dir, fileRotatorFn)
+	rotatorFn := func(status RotateStatus) io.WriteCloser {
+		if rotate, fileName := fileRotatorFn(status); rotate {
+			newFile, err := os.OpenFile(path.Join(dir, fileName), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+			if err == nil {
+				return newFile
+			}
+		}
+
+		return nil
+	}
+
 	initFile, err := os.OpenFile(initFilePath, os.O_CREATE|os.O_WRONLY, 0644)
 
 	if err != nil {
 		return nil, err
 	}
 
+	rw := NewRotateWriter(initFile, rotatorFn)
 	rfw := &RotateFileWriter{
-		RotateWriter: NewRotateWriter(initFile, rotatorFn),
+		RotateWriter: rw,
 		dir:          dir,
 	}
 
