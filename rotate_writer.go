@@ -1,13 +1,20 @@
 package rotate_writer
 
 import (
-	"fmt"
 	"io"
 	"sync/atomic"
 	"time"
 )
 
-type RotatorFn = func(itemIdx int32, currentSize int32, addedSize int, startTime time.Time, endTime time.Time) io.WriteCloser
+type RotateStatus struct {
+	ItemIdx     int32
+	CurrentSize int32
+	AddedSize   int
+	StartTime   time.Time
+	EndTime     time.Time
+}
+
+type RotatorFn = func(RotateStatus) io.WriteCloser
 
 type RotateWriter struct {
 	currentWriter io.WriteCloser
@@ -17,17 +24,24 @@ type RotateWriter struct {
 
 	counter atomic.Int32
 
-	rotateCondition RotatorFn
+	rotatorFn RotatorFn
 }
 
-func (rw *RotateWriter) checkRotateCond(len_p int, newTime *time.Time) io.WriteCloser {
+func (rw *RotateWriter) checkRotate(len_p int, newTime time.Time) io.WriteCloser {
 	startTimeInt := rw.currentStartTime.Load()
 	startTime := time.Unix(startTimeInt, 0)
 
-	return rw.rotateCondition(rw.counter.Load()+1, rw.currentSize.Load(), len_p, startTime, *newTime)
+	status := RotateStatus{
+		ItemIdx:     rw.counter.Load() + 1,
+		CurrentSize: rw.currentSize.Load(),
+		AddedSize:   len_p,
+		StartTime:   startTime,
+		EndTime:     newTime,
+	}
+	return rw.rotatorFn(status)
 }
 
-func (rw *RotateWriter) rotate(newWriter io.WriteCloser, newTime *time.Time) error {
+func (rw *RotateWriter) Rotate(newWriter io.WriteCloser, newTime time.Time) error {
 	err := rw.currentWriter.Close()
 
 	if err != nil {
@@ -45,23 +59,23 @@ func (rw *RotateWriter) rotate(newWriter io.WriteCloser, newTime *time.Time) err
 func (rw *RotateWriter) Write(p []byte) (int, error) {
 	newTime := time.Now()
 
-	newWriter := rw.checkRotateCond(len(p), &newTime)
+	newWriter := rw.checkRotate(len(p), newTime)
 
 	if newWriter != nil {
-		err := rw.rotate(newWriter, &newTime)
+		err := rw.Rotate(newWriter, newTime)
 		if err != nil {
-			return 0, fmt.Errorf("failed to rotate file: %s", err)
+			return 0, &RotateError{err}
 		}
 	}
 
 	if rw.currentWriter == nil {
-		return 0, fmt.Errorf("failed to write to file: currentWriter is nil")
+		return 0, io.ErrClosedPipe
 	}
 
 	n, err := rw.currentWriter.Write(p)
 
 	if err != nil {
-		return 0, fmt.Errorf("failed to write to file: %s", err)
+		return 0, err
 	}
 
 	rw.currentSize.Add(int32(n))
@@ -76,21 +90,25 @@ func (rw *RotateWriter) Reset(writerCloser io.WriteCloser) {
 	rw.currentSize.Store(0)
 }
 
-func NewRotateWriter(initialWriter io.WriteCloser, rotateCondition RotatorFn) (*RotateWriter, error) {
-
-	if rotateCondition == nil {
-		return nil, fmt.Errorf("rotateCondition cannot be nil")
+func (rw *RotateWriter) Close() error {
+	if rw.currentWriter == nil {
+		return nil
 	}
+	err := rw.currentWriter.Close()
+	rw.currentWriter = nil
+	return err
+}
 
-	if initialWriter == nil {
-		return nil, fmt.Errorf("writerCloser cannot be nil")
+func NewRotateWriter(initialWriter io.WriteCloser, rotateCondition RotatorFn) *RotateWriter {
+	if rotateCondition == nil || initialWriter == nil {
+		return nil
 	}
 
 	rw := &RotateWriter{
-		rotateCondition: rotateCondition,
+		rotatorFn: rotateCondition,
 	}
 
 	rw.Reset(initialWriter)
 
-	return rw, nil
+	return rw
 }
