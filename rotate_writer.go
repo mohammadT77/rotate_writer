@@ -56,10 +56,12 @@ func (rw *RotateWriter) checkRotate(len_p int, newTime time.Time) io.WriteCloser
 
 func (rw *RotateWriter) Rotate(newWriter io.WriteCloser, newTime time.Time) error {
 	rw.mu.Lock()
-	err := rw.currentWriter.Close()
-	if err != nil {
-		rw.mu.Unlock()
-		return err
+	if rw.currentWriter != nil {
+		err := rw.currentWriter.Close()
+		if err != nil {
+			rw.mu.Unlock()
+			return err
+		}
 	}
 	rw.currentWriter = newWriter
 	rw.mu.Unlock()
