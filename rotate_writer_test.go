@@ -111,6 +111,5 @@ func TestRotateWriterDummyBufferParallel(t *testing.T) {
 	}()
 
 	wg.Wait()
-	t.Error()
 
 }

@@ -137,7 +137,7 @@ func TestRotateFileWriterParallel(t *testing.T) {
 	os.RemoveAll("testdata")
 	rotator := func(status rotate_writer.RotateStatus) (rotate bool, fileName string) {
 		if status.CurrentSize+int32(status.AddedSize) > 15 {
-			return true, fmt.Sprint("TestRotateFileWriterParallel", status.ItemIdx, ".txt")
+			return true, fmt.Sprint("TestRotateFileWriterParallel_", status.ItemIdx, "_", status.EndTime, ".txt")
 		}
 
 		return false, ""
@@ -172,5 +172,4 @@ func TestRotateFileWriterParallel(t *testing.T) {
 	wg.Wait()
 
 	rfw.Close()
-	t.Error()
 }
