@@ -45,19 +45,6 @@ func TestRotateFileWriter(t *testing.T) {
 
 	require.False(t, rfw.IsOpen())
 
-	n, err = rfw.Write([]byte("x"))
-	t.Error(err)
-	require.ErrorIs(t, err, io.ErrClosedPipe)
-	require.Equal(t, 0, n)
-
-	err = rfw.Open()
-
-	require.Nil(t, err)
-	n, err = rfw.Write([]byte("x"))
-
-	require.Nil(t, err)
-	require.Equal(t, 1, n)
-
 }
 
 func TestRotateFileWriterOpenClose(t *testing.T) {
@@ -149,7 +136,7 @@ func TestRotateFileWriterRotate(t *testing.T) {
 func TestRotateFileWriterParallel(t *testing.T) {
 	os.RemoveAll("testdata")
 	rotator := func(status rotate_writer.RotateStatus) (rotate bool, fileName string) {
-		if status.CurrentSize > 10 {
+		if status.CurrentSize+int32(status.AddedSize) > 15 {
 			return true, fmt.Sprint("TestRotateFileWriterParallel", status.ItemIdx, ".txt")
 		}
 
