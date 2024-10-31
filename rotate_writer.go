@@ -61,12 +61,16 @@ func (rw *RotateWriter) checkRotate(len_p int, newTime time.Time) io.WriteCloser
 	return rw.rotatorFn(status)
 }
 
-// Rotate rotates the writer with the given io.WriteCloser and time.Time.
-// Returns an error if the writer could not be rotated.
 func (rw *RotateWriter) Rotate(newWriter io.WriteCloser, newTime time.Time) error {
 	rw.mu.Lock()
 	defer rw.mu.Unlock()
 
+	return rw.rotate(newWriter, newTime)
+}
+
+// Rotate rotates the writer with the given io.WriteCloser and time.Time.
+// Returns an error if the writer could not be rotated.
+func (rw *RotateWriter) rotate(newWriter io.WriteCloser, newTime time.Time) error {
 	if rw.curWriter != nil {
 		err := rw.curWriter.Close()
 		if err != nil {
@@ -88,20 +92,17 @@ func (rw *RotateWriter) Rotate(newWriter io.WriteCloser, newTime time.Time) erro
 // Returns io.ErrClosedPipe if the writer is closed.
 func (rw *RotateWriter) Write(p []byte) (int, error) {
 	rw.mu.Lock()
+	defer rw.mu.Unlock()
 
 	newTime := time.Now()
 	newWriter := rw.checkRotate(len(p), newTime)
 
-	rw.mu.Unlock()
 	if newWriter != nil {
-		err := rw.Rotate(newWriter, newTime)
+		err := rw.rotate(newWriter, newTime)
 		if err != nil {
 			return 0, &RotateError{err}
 		}
 	}
-
-	rw.mu.Lock()
-	defer rw.mu.Unlock()
 
 	if rw.curWriter == nil {
 		return 0, io.ErrClosedPipe
