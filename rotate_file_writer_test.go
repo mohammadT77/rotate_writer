@@ -152,24 +152,23 @@ func TestRotateFileWriterParallel(t *testing.T) {
 
 	wg := &sync.WaitGroup{}
 
+	const S = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 	for i := 0; i < 5; i++ {
 		wg.Add(1)
 
-		go func() {
+		go func(i int) {
 			defer wg.Done()
-			s := ""
-			for j := 0; j < 6; j++ {
-				s += string(byte((i+1)*(j+1)) + 'a' - 1)
-			}
+			s := S[i*6 : (i+1)*6]
 			t.Log(s)
 			n, err := rfw.Write([]byte(s))
 
 			require.Nil(t, err)
 			require.Equal(t, len(s), n)
-		}()
+		}(i)
 	}
 
 	wg.Wait()
 
 	rfw.Close()
+	t.Error()
 }

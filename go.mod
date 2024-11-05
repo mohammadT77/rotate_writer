@@ -1,6 +1,6 @@
 module github.com/mohammadT77/rotate_writer
 
-go 1.23.2
+go 1.19
 
 require github.com/stretchr/testify v1.9.0
 
