@@ -1,5 +1,5 @@
 # rotate_writer
-Generic GoLang Rotate Writer 
+Generic GoLang Rotate Writer (io.Writer and io.WriterCloser) 
 
 
 `rotate_writer` is a Go package that provides a `RotateWriter` struct, which implements an `io.Writer` that automatically rotates its underlying `io.WriteCloser` based on custom-defined conditions. This is useful for scenarios such as log file rotation where a new writer needs to be created periodically or based on certain size or time conditions.
@@ -9,7 +9,7 @@ Generic GoLang Rotate Writer
 To use `rotate_writer`, install it using:
 
 ```shell
-go get -u github.com/yourusername/rotate_writer
+go get -u github.com/mohammadT77/rotate_writer
 ```
 
 
@@ -17,11 +17,13 @@ go get -u github.com/yourusername/rotate_writer
 Creating a RotateWriter
 First, you need to define a rotation condition function of type `RotatorFn`, which takes a `RotateStatus` and returns a new `io.WriteCloser` when a rotation is needed. Here’s an example condition that rotates based on a maximum size:
 
+The name, type, and rotation triggerer can be fully customized within this function.
+
 ```go
 func rotateOnSize(status rotate_writer.RotateStatus) io.WriteCloser {
     if status.CurrentSize+status.AddedSize > maxSize {
         // Return a new writer if the size exceeds maxSize
-        return openNewLogFile()
+        return openNewLogFile() // Can be buffer, stdio, logger or any other kind of Writers 
     }
     return nil
 }
@@ -38,7 +40,7 @@ rw := rotate_writer.NewRotateWriter(initialWriter, rotateOnSize)
 To write data, simply call the `Write` method:
 
 ```go
-_, err := rw.Write([]byte("Some log message"))
+_, err := rw.Write([]byte("Some log message")) // implemented io.Writer
 if err != nil {
     log.Fatalf("Failed to write: %v", err)
 }
@@ -54,7 +56,7 @@ If needed, you can manually rotate the writer by calling Rotate with a new io.Wr
 Always close the RotateWriter to ensure all resources are properly released:
 
 ```go
-err := rw.Close()
+err := rw.Close()  // implemented io.WriteCloser
 if err != nil {
     log.Fatalf("Failed to close: %v", err)
 }
